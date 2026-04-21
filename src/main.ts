@@ -12,8 +12,15 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const uploadDir = configService.get<string>('upload.dir', 'uploads');
   const uploadBaseUrl = configService.get<string>('upload.baseUrl', '/uploads');
+  const corsOrigin = configService.get<string>('app.corsOrigin', '*');
 
   app.setGlobalPrefix('api');
+  app.enableCors({
+    origin: resolveCorsOrigin(corsOrigin),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+  });
   app.useStaticAssets(uploadDir, {
     prefix: uploadBaseUrl
   });
@@ -54,6 +61,17 @@ async function bootstrap() {
 
   const port = configService.get<number>('app.port', 3000);
   await app.listen(port);
+}
+
+function resolveCorsOrigin(value: string) {
+  if (!value || value === '*') {
+    return true;
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 void bootstrap();
