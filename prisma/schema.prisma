@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminUserRole {
+  super_admin
+  editor
+}
+
+enum AdminUserStatus {
+  enabled
+  disabled
+}
+
+enum ContentStatus {
+  draft
+  published
+  offline
+}
+
+enum LeadStatus {
+  pending
+  contacted
+  converted
+  invalid
+}
+
+model AdminUser {
+  id                  BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  username            String          @unique @db.VarChar(50)
+  passwordHash        String          @map("password_hash") @db.VarChar(255)
+  nickname            String          @db.VarChar(100)
+  role                AdminUserRole
+  status              AdminUserStatus @default(enabled)
+  lastLoginAt         DateTime?       @map("last_login_at")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  createdNews         News[]          @relation("news_created_by")
+  updatedNews         News[]          @relation("news_updated_by")
+  createdCaseStudies  CaseStudy[]     @relation("case_study_created_by")
+  updatedCaseStudies  CaseStudy[]     @relation("case_study_updated_by")
+  createdServices     Service[]       @relation("service_created_by")
+  updatedServices     Service[]       @relation("service_updated_by")
+  assignedLeads       Lead[]          @relation("lead_assigned_to")
+  updatedSiteConfigs  SiteConfig[]
+  uploadedFiles       UploadFile[]
+  operationLogs       OperationLog[]
+
+  @@map("admin_user")
+}
+
+model News {
+  id             BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  title          String        @db.VarChar(255)
+  slug           String        @unique @db.VarChar(255)
+  summary        String?       @db.VarChar(500)
+  coverImage     String?       @map("cover_image") @db.VarChar(500)
+  content        String        @db.LongText
+  seoTitle       String?       @map("seo_title") @db.VarChar(255)
+  seoKeywords    String?       @map("seo_keywords") @db.VarChar(255)
+  seoDescription String?       @map("seo_description") @db.VarChar(500)
+  status         ContentStatus @default(draft)
+  publishedAt    DateTime?     @map("published_at")
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdBy      BigInt        @map("created_by") @db.UnsignedBigInt
+  updatedBy      BigInt        @map("updated_by") @db.UnsignedBigInt
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+  creator        AdminUser     @relation("news_created_by", fields: [createdBy], references: [id])
+  updater        AdminUser     @relation("news_updated_by", fields: [updatedBy], references: [id])
+
+  @@index([status, publishedAt, sortOrder])
+  @@map("news")
+}
+
+model CaseStudy {
+  id             BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  title          String        @db.VarChar(255)
+  slug           String        @unique @db.VarChar(255)
+  summary        String?       @db.VarChar(500)
+  coverImage     String?       @map("cover_image") @db.VarChar(500)
+  content        String        @db.LongText
+  clientName     String?       @map("client_name") @db.VarChar(255)
+  industry       String?       @db.VarChar(100)
+  projectDate    DateTime?     @map("project_date") @db.Date
+  seoTitle       String?       @map("seo_title") @db.VarChar(255)
+  seoKeywords    String?       @map("seo_keywords") @db.VarChar(255)
+  seoDescription String?       @map("seo_description") @db.VarChar(500)
+  status         ContentStatus @default(draft)
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdBy      BigInt        @map("created_by") @db.UnsignedBigInt
+  updatedBy      BigInt        @map("updated_by") @db.UnsignedBigInt
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+  creator        AdminUser     @relation("case_study_created_by", fields: [createdBy], references: [id])
+  updater        AdminUser     @relation("case_study_updated_by", fields: [updatedBy], references: [id])
+
+  @@index([status, sortOrder])
+  @@map("case_study")
+}
+
+model Service {
+  id             BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  title          String        @db.VarChar(255)
+  slug           String        @unique @db.VarChar(255)
+  summary        String?       @db.VarChar(500)
+  coverImage     String?       @map("cover_image") @db.VarChar(500)
+  content        String        @db.LongText
+  seoTitle       String?       @map("seo_title") @db.VarChar(255)
+  seoKeywords    String?       @map("seo_keywords") @db.VarChar(255)
+  seoDescription String?       @map("seo_description") @db.VarChar(500)
+  status         ContentStatus @default(draft)
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdBy      BigInt        @map("created_by") @db.UnsignedBigInt
+  updatedBy      BigInt        @map("updated_by") @db.UnsignedBigInt
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+  creator        AdminUser     @relation("service_created_by", fields: [createdBy], references: [id])
+  updater        AdminUser     @relation("service_updated_by", fields: [updatedBy], references: [id])
+
+  @@index([status, sortOrder])
+  @@map("service")
+}
+
+model Lead {
+  id          BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  name        String      @db.VarChar(100)
+  phone       String      @db.VarChar(50)
+  email       String?     @db.VarChar(100)
+  company     String?     @db.VarChar(150)
+  sourcePage  String?     @map("source_page") @db.VarChar(255)
+  message     String?     @db.VarChar(1000)
+  status      LeadStatus  @default(pending)
+  remark      String?     @db.VarChar(1000)
+  assignedTo  BigInt?     @map("assigned_to") @db.UnsignedBigInt
+  contactedAt DateTime?   @map("contacted_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  assignee    AdminUser?  @relation("lead_assigned_to", fields: [assignedTo], references: [id])
+
+  @@index([status, createdAt])
+  @@map("lead")
+}
+
+model SiteConfig {
+  id          BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
+  configKey   String     @unique @map("config_key") @db.VarChar(100)
+  configValue String     @map("config_value") @db.LongText
+  description String?    @db.VarChar(255)
+  updatedBy   BigInt?    @map("updated_by") @db.UnsignedBigInt
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  updater     AdminUser? @relation(fields: [updatedBy], references: [id])
+
+  @@map("site_config")
+}
+
+model UploadFile {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  fileName   String    @map("file_name") @db.VarChar(255)
+  filePath   String    @map("file_path") @db.VarChar(500)
+  fileUrl    String    @map("file_url") @db.VarChar(500)
+  mimeType   String    @map("mime_type") @db.VarChar(100)
+  fileSize   BigInt    @map("file_size")
+  uploadedBy BigInt?   @map("uploaded_by") @db.UnsignedBigInt
+  createdAt  DateTime  @default(now()) @map("created_at")
+  uploader   AdminUser? @relation(fields: [uploadedBy], references: [id])
+
+  @@map("upload_file")
+}
+
+model OperationLog {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  adminUserId BigInt?   @map("admin_user_id") @db.UnsignedBigInt
+  module      String    @db.VarChar(100)
+  action      String    @db.VarChar(100)
+  targetId    String?   @map("target_id") @db.VarChar(100)
+  targetType  String?   @map("target_type") @db.VarChar(100)
+  content     String?   @db.VarChar(1000)
+  ip          String?   @db.VarChar(64)
+  userAgent   String?   @map("user_agent") @db.VarChar(500)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId, createdAt])
+  @@map("operation_log")
+}

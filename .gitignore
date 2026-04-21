@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+coverage/
+.turbo/
+.cache/
+
+# environment files
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# runtime / temp files
+tmp/
+temp/
+uploads/
+upload_imgs/
+
+# editor / OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# test artifacts
+.nyc_output/
+
+# prisma local artifacts
+prisma/dev.db
+prisma/dev.db-journal
+
+# archives / backups
+*.zip
+*.tar
+*.gz
