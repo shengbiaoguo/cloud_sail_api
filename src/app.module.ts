@@ -15,6 +15,7 @@ import { SiteConfigModule } from './modules/site-config/site-config.module';
 import { LeadModule } from './modules/lead/lead.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { OperationLogModule } from './modules/operation-log/operation-log.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { OperationLogModule } from './modules/operation-log/operation-log.module
     SiteConfigModule,
     LeadModule,
     UploadModule,
-    OperationLogModule
+    OperationLogModule,
+    DashboardModule
   ],
   providers: [
     {
