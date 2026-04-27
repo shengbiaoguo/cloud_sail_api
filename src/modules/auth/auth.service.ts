@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { comparePassword } from '@/common/utils/password.util';
 import { AdminUserService } from '../admin-user/admin-user.service';
@@ -17,13 +17,13 @@ export class AuthService {
     const adminUser = await this.adminUserService.findByUsername(dto.username);
 
     if (!adminUser || adminUser.status !== 'enabled') {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new BadRequestException('用户名或密码错误');
     }
 
     const isPasswordValid = await comparePassword(dto.password, adminUser.passwordHash);
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new BadRequestException('用户名或密码错误');
     }
 
     await this.adminUserService.updateLastLoginAt(adminUser.id);

@@ -107,7 +107,7 @@ export class AdminUserService {
         passwordHash: await hashPassword(dto.password),
         nickname: dto.nickname,
         role: dto.role,
-        status: 'enabled'
+        status: dto.status ?? 'enabled'
       }
     });
 

@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { RequestContextMiddleware } from './common/request-context/request-context.middleware';
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -47,4 +48,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     }
   ]
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}

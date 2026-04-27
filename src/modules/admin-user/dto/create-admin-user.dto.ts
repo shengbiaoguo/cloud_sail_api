@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateAdminUserDto {
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
@@ -23,4 +23,9 @@ export class CreateAdminUserDto {
   @IsString()
   @IsIn(['super_admin', 'editor'])
   role!: 'super_admin' | 'editor';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['enabled', 'disabled'])
+  status?: 'enabled' | 'disabled';
 }

@@ -100,12 +100,21 @@ export class UploadService {
     ]);
 
     return {
-      list,
+      list: list.map((item) => this.withUploadedByName(item)),
       pagination: {
         page,
         pageSize,
         total
       }
+    };
+  }
+
+  private withUploadedByName<T extends { uploader?: { nickname?: string | null; username?: string | null } | null }>(
+    item: T
+  ) {
+    return {
+      ...item,
+      uploadedByName: item.uploader?.nickname || item.uploader?.username || ''
     };
   }
 }

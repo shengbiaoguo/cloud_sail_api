@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/database/prisma.service';
+import { requestContextStorage } from '@/common/request-context/request-context.storage';
 import { QueryOperationLogDto } from './dto/query-operation-log.dto';
 
 interface CreateOperationLogInput {
@@ -19,6 +20,8 @@ export class OperationLogService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(input: CreateOperationLogInput) {
+    const requestContext = requestContextStorage.getStore();
+
     return this.prisma.operationLog.create({
       data: {
         adminUserId: input.adminUserId ? BigInt(input.adminUserId) : null,
@@ -27,8 +30,8 @@ export class OperationLogService {
         targetId: input.targetId,
         targetType: input.targetType,
         content: input.content,
-        ip: input.ip,
-        userAgent: input.userAgent
+        ip: input.ip || requestContext?.ip || null,
+        userAgent: input.userAgent || requestContext?.userAgent || null
       }
     });
   }
@@ -110,7 +113,7 @@ export class OperationLogService {
     ]);
 
     return {
-      list,
+      list: list.map((item) => this.withAdminUserName(item)),
       pagination: {
         page,
         pageSize,
@@ -141,6 +144,15 @@ export class OperationLogService {
       throw new NotFoundException('操作日志不存在');
     }
 
-    return operationLog;
+    return this.withAdminUserName(operationLog);
+  }
+
+  private withAdminUserName<T extends { adminUser?: { nickname?: string | null; username?: string | null } | null }>(
+    item: T
+  ) {
+    return {
+      ...item,
+      adminUserName: item.adminUser?.nickname || item.adminUser?.username || ''
+    };
   }
 }
