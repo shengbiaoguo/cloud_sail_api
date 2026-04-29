@@ -12,5 +12,6 @@ export const envValidationSchema = Joi.object({
   UPLOAD_BASE_URL: Joi.string().default('/uploads'),
   REDIS_HOST: Joi.string().default('127.0.0.1'),
   REDIS_PORT: Joi.number().port().default(6379),
-  REDIS_DB: Joi.number().integer().min(0).default(0)
+  REDIS_DB: Joi.number().integer().min(0).default(0),
+  REDIS_PASSWORD: Joi.string().allow('').default('')
 });

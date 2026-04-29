@@ -6,17 +6,24 @@ import {
 import { ContentStatus, Prisma } from '@prisma/client';
 import { normalizeSlug } from '@/common/utils/slug.util';
 import { PrismaService } from '@/database/prisma.service';
+import { RedisService } from '@/redis/redis.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { CreateNewsDto } from './dto/create-news.dto';
 import { QueryAdminNewsDto } from './dto/query-admin-news.dto';
 import { QueryWebNewsDto } from './dto/query-web-news.dto';
 import { UpdateNewsDto } from './dto/update-news.dto';
 
+const WEB_NEWS_LIST_CACHE_PREFIX = 'news:web:list:';
+const WEB_NEWS_DETAIL_CACHE_PREFIX = 'news:web:detail:';
+const WEB_NEWS_LIST_CACHE_TTL_SECONDS = 300;
+const WEB_NEWS_DETAIL_CACHE_TTL_SECONDS = 600;
+
 @Injectable()
 export class NewsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operationLogService: OperationLogService
+    private readonly operationLogService: OperationLogService,
+    private readonly redisService: RedisService
   ) {}
 
   async findAdminList(dto: QueryAdminNewsDto) {
@@ -146,14 +153,17 @@ export class NewsService {
       content: `创建新闻 ${news.title}`
     });
 
+    await this.invalidateWebNewsCache([news.slug]);
+
     return news;
   }
 
   async update(id: number, dto: UpdateNewsDto, currentAdminId: string) {
     const existing = await this.requireNews(id);
-    const nextSlug = dto.slug !== undefined || dto.title !== undefined
-      ? this.resolveSlug(dto.slug ?? existing.slug, dto.title ?? existing.title)
-      : existing.slug;
+    const nextSlug =
+      dto.slug !== undefined || dto.title !== undefined
+        ? this.resolveSlug(dto.slug ?? existing.slug, dto.title ?? existing.title)
+        : existing.slug;
 
     if (nextSlug !== existing.slug) {
       await this.ensureSlugUnique(nextSlug, existing.id);
@@ -194,6 +204,8 @@ export class NewsService {
       content: `更新新闻 ${news.title}`
     });
 
+    await this.invalidateWebNewsCache([existing.slug, news.slug]);
+
     return news;
   }
 
@@ -218,6 +230,8 @@ export class NewsService {
       targetType: 'news',
       content: `删除新闻 ${existing.title}`
     });
+
+    await this.invalidateWebNewsCache([existing.slug]);
 
     return {
       success: true
@@ -247,6 +261,8 @@ export class NewsService {
       content: `发布新闻 ${news.title}`
     });
 
+    await this.invalidateWebNewsCache([news.slug]);
+
     return news;
   }
 
@@ -272,10 +288,22 @@ export class NewsService {
       content: `下线新闻 ${news.title}`
     });
 
+    await this.invalidateWebNewsCache([news.slug]);
+
     return news;
   }
 
   async findWebList(dto: QueryWebNewsDto) {
+    const cacheKey = this.buildWebNewsListCacheKey(dto);
+    const cached = await this.redisService.getJson<{
+      list: Array<Record<string, unknown>>;
+      pagination: { page: number; pageSize: number; total: number };
+    }>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
     const page = dto.page ?? 1;
     const pageSize = dto.pageSize ?? 10;
     const skip = (page - 1) * pageSize;
@@ -325,7 +353,7 @@ export class NewsService {
       this.prisma.news.count({ where })
     ]);
 
-    return {
+    const result = {
       list,
       pagination: {
         page,
@@ -333,9 +361,20 @@ export class NewsService {
         total
       }
     };
+
+    await this.redisService.setJson(cacheKey, result, WEB_NEWS_LIST_CACHE_TTL_SECONDS);
+
+    return result;
   }
 
   async findWebDetail(slug: string) {
+    const cacheKey = this.buildWebNewsDetailCacheKey(slug);
+    const cached = await this.redisService.getJson<Record<string, unknown>>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
     const news = await this.prisma.news.findFirst({
       where: {
         slug,
@@ -362,6 +401,8 @@ export class NewsService {
     if (!news) {
       throw new NotFoundException('新闻不存在');
     }
+
+    await this.redisService.setJson(cacheKey, news, WEB_NEWS_DETAIL_CACHE_TTL_SECONDS);
 
     return news;
   }
@@ -410,5 +451,27 @@ export class NewsService {
     }
 
     return publishedAt ?? null;
+  }
+
+  private buildWebNewsListCacheKey(dto: QueryWebNewsDto) {
+    const page = dto.page ?? 1;
+    const pageSize = dto.pageSize ?? 10;
+    const keyword = encodeURIComponent((dto.keyword ?? '').trim());
+
+    return `${WEB_NEWS_LIST_CACHE_PREFIX}page=${page}&pageSize=${pageSize}&keyword=${keyword}`;
+  }
+
+  private buildWebNewsDetailCacheKey(slug: string) {
+    return `${WEB_NEWS_DETAIL_CACHE_PREFIX}${slug}`;
+  }
+
+  private async invalidateWebNewsCache(slugs: string[] = []) {
+    await this.redisService.deleteByPrefix(WEB_NEWS_LIST_CACHE_PREFIX);
+
+    const detailKeys = Array.from(new Set(slugs.filter(Boolean))).map((slug) =>
+      this.buildWebNewsDetailCacheKey(slug)
+    );
+
+    await this.redisService.deleteMany(detailKeys);
   }
 }
