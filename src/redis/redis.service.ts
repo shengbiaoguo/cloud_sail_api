@@ -1,14 +1,19 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { PinoLogger } from 'nestjs-pino';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RedisService.name);
   private client: Redis | null = null;
   private connected = false;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly logger: PinoLogger
+  ) {
+    this.logger.setContext(RedisService.name);
+  }
 
   async onModuleInit() {
     const host = this.configService.get<string>('redis.host', '127.0.0.1');
@@ -27,7 +32,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     this.client.on('ready', () => {
       this.connected = true;
-      this.logger.log(`Redis connected: ${host}:${port}/${db}`);
+      this.logger.info(`Redis connected: ${host}:${port}/${db}`);
     });
 
     this.client.on('error', (error: Error) => {
@@ -84,13 +89,43 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getNumber(key: string): Promise<number> {
+    if (!this.client || !this.connected) {
+      return 0;
+    }
+
+    try {
+      const value = await this.client.get(key);
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Redis getNumber failed for key ${key}: ${message}`);
+      return 0;
+    }
+  }
+
+  async increment(key: string): Promise<number> {
+    if (!this.client || !this.connected) {
+      return 0;
+    }
+
+    try {
+      return await this.client.incr(key);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Redis increment failed for key ${key}: ${message}`);
+      return 0;
+    }
+  }
+
   async setJson<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
     if (!this.client || !this.connected) {
       return;
     }
 
     try {
-      const payload = JSON.stringify(value);
+      const payload = this.safeStringify(value);
 
       if (ttlSeconds && ttlSeconds > 0) {
         await this.client.set(key, payload, 'EX', ttlSeconds);
@@ -102,6 +137,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Redis setJson failed for key ${key}: ${message}`);
     }
+  }
+
+  private safeStringify(value: unknown): string {
+    return JSON.stringify(value, (_key, currentValue) =>
+      typeof currentValue === 'bigint' ? currentValue.toString() : currentValue
+    );
   }
 
   async delete(key: string): Promise<void> {

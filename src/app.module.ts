@@ -17,9 +17,15 @@ import { LeadModule } from './modules/lead/lead.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { OperationLogModule } from './modules/operation-log/operation-log.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { LoggerModule } from 'nestjs-pino';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { pinoHttpConfig } from './common/logger/pino-http.config';
 
 @Module({
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: pinoHttpConfig
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
@@ -45,7 +51,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     {
       provide: APP_GUARD,
       useClass: RolesGuard
-    }
+    },
+    AllExceptionsFilter
   ]
 })
 export class AppModule implements NestModule {

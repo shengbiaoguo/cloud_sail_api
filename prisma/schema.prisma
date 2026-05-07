@@ -30,6 +30,14 @@ enum LeadStatus {
   invalid
 }
 
+enum NewsCategory {
+  industry_news
+  writing_tips
+  journal_submission
+  academic_service
+  research_integrity
+}
+
 model AdminUser {
   id                  BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
   username            String          @unique @db.VarChar(50)
@@ -58,6 +66,8 @@ model News {
   id             BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
   title          String        @db.VarChar(255)
   slug           String        @unique @db.VarChar(255)
+  category       NewsCategory  @default(industry_news)
+  tags           String?       @db.VarChar(1000)
   summary        String?       @db.VarChar(500)
   coverImage     String?       @map("cover_image") @db.VarChar(500)
   content        String        @db.LongText
@@ -75,6 +85,7 @@ model News {
   creator        AdminUser     @relation("news_created_by", fields: [createdBy], references: [id])
   updater        AdminUser     @relation("news_updated_by", fields: [updatedBy], references: [id])
 
+  @@index([category, status, publishedAt, sortOrder])
   @@index([status, publishedAt, sortOrder])
   @@map("news")
 }

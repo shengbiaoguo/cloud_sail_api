@@ -4,13 +4,17 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger
+  Injectable
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { PinoLogger } from 'nestjs-pino';
 
 @Catch()
+@Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger(AllExceptionsFilter.name);
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(AllExceptionsFilter.name);
+  }
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -37,7 +41,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = exception.message;
     }
 
-    this.logger.error(`${request.method} ${request.url}`, exception instanceof Error ? exception.stack : undefined);
+    this.logger.error(
+      {
+        err: exception instanceof Error ? exception : undefined,
+        method: request.method,
+        url: request.url,
+        statusCode: status
+      },
+      'Unhandled exception'
+    );
 
     response.status(status).json({
       code,

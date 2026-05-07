@@ -3,12 +3,16 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true
+  });
+  app.useLogger(app.get(Logger));
   const configService = app.get(ConfigService);
   const uploadDir = configService.get<string>('upload.dir', 'uploads');
   const uploadBaseUrl = configService.get<string>('upload.baseUrl', '/uploads');
@@ -34,7 +38,7 @@ async function bootstrap() {
       }
     })
   );
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(app.get(AllExceptionsFilter));
   app.useGlobalInterceptors(new ResponseInterceptor());
 
   const swaggerConfig = new DocumentBuilder()

@@ -1,22 +1,27 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException
-} from '@nestjs/common';
-import { ContentStatus, Prisma } from '@prisma/client';
+﻿import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ContentStatus, Prisma, type NewsCategory } from '@prisma/client';
 import { normalizeSlug } from '@/common/utils/slug.util';
 import { PrismaService } from '@/database/prisma.service';
 import { RedisService } from '@/redis/redis.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
-import { CreateNewsDto } from './dto/create-news.dto';
+import { CreateNewsDto, NEWS_CATEGORY_VALUES, type NewsCategoryValue } from './dto/create-news.dto';
 import { QueryAdminNewsDto } from './dto/query-admin-news.dto';
 import { QueryWebNewsDto } from './dto/query-web-news.dto';
 import { UpdateNewsDto } from './dto/update-news.dto';
 
 const WEB_NEWS_LIST_CACHE_PREFIX = 'news:web:list:';
 const WEB_NEWS_DETAIL_CACHE_PREFIX = 'news:web:detail:';
+const WEB_NEWS_VIEW_COUNT_KEY_PREFIX = 'news:web:view_count:';
 const WEB_NEWS_LIST_CACHE_TTL_SECONDS = 300;
 const WEB_NEWS_DETAIL_CACHE_TTL_SECONDS = 600;
+
+const CATEGORY_LABEL_MAP: Record<NewsCategoryValue, string> = {
+  industry_news: '行业资讯',
+  writing_tips: '写作技巧',
+  journal_submission: '期刊投稿',
+  academic_service: '学术服务',
+  research_integrity: '科研诚信'
+};
 
 @Injectable()
 export class NewsService {
@@ -36,20 +41,13 @@ export class NewsService {
       ...(dto.keyword
         ? {
             OR: [
-              {
-                title: {
-                  contains: dto.keyword
-                }
-              },
-              {
-                slug: {
-                  contains: dto.keyword
-                }
-              }
+              { title: { contains: dto.keyword } },
+              { slug: { contains: dto.keyword } }
             ]
           }
         : {}),
-      ...(dto.status ? { status: dto.status } : {})
+      ...(dto.status ? { status: dto.status } : {}),
+      ...(dto.category ? { category: dto.category } : {})
     };
 
     const [list, total] = await this.prisma.$transaction([
@@ -59,56 +57,25 @@ export class NewsService {
         take: pageSize,
         orderBy: [{ sortOrder: 'desc' }, { updatedAt: 'desc' }],
         include: {
-          creator: {
-            select: {
-              id: true,
-              username: true,
-              nickname: true
-            }
-          },
-          updater: {
-            select: {
-              id: true,
-              username: true,
-              nickname: true
-            }
-          }
+          creator: { select: { id: true, username: true, nickname: true } },
+          updater: { select: { id: true, username: true, nickname: true } }
         }
       }),
       this.prisma.news.count({ where })
     ]);
 
     return {
-      list,
-      pagination: {
-        page,
-        pageSize,
-        total
-      }
+      list: list.map((item) => ({ ...item, tags: this.parseTags(item.tags) })),
+      pagination: { page, pageSize, total }
     };
   }
 
   async findAdminDetail(id: number) {
     const news = await this.prisma.news.findFirst({
-      where: {
-        id: BigInt(id),
-        deletedAt: null
-      },
+      where: { id: BigInt(id), deletedAt: null },
       include: {
-        creator: {
-          select: {
-            id: true,
-            username: true,
-            nickname: true
-          }
-        },
-        updater: {
-          select: {
-            id: true,
-            username: true,
-            nickname: true
-          }
-        }
+        creator: { select: { id: true, username: true, nickname: true } },
+        updater: { select: { id: true, username: true, nickname: true } }
       }
     });
 
@@ -116,7 +83,7 @@ export class NewsService {
       throw new NotFoundException('新闻不存在');
     }
 
-    return news;
+    return { ...news, tags: this.parseTags(news.tags) };
   }
 
   async create(dto: CreateNewsDto, currentAdminId: string) {
@@ -130,6 +97,8 @@ export class NewsService {
       data: {
         title: dto.title,
         slug,
+        category: (dto.category ?? 'industry_news') as NewsCategory,
+        tags: this.stringifyTags(dto.tags),
         summary: dto.summary,
         coverImage: dto.coverImage,
         content: dto.content,
@@ -155,7 +124,7 @@ export class NewsService {
 
     await this.invalidateWebNewsCache([news.slug]);
 
-    return news;
+    return { ...news, tags: this.parseTags(news.tags) };
   }
 
   async update(id: number, dto: UpdateNewsDto, currentAdminId: string) {
@@ -176,12 +145,12 @@ export class NewsService {
     );
 
     const news = await this.prisma.news.update({
-      where: {
-        id: existing.id
-      },
+      where: { id: existing.id },
       data: {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         slug: nextSlug,
+        ...(dto.category !== undefined ? { category: dto.category as NewsCategory } : {}),
+        ...(dto.tags !== undefined ? { tags: this.stringifyTags(dto.tags) } : {}),
         ...(dto.summary !== undefined ? { summary: dto.summary } : {}),
         ...(dto.coverImage !== undefined ? { coverImage: dto.coverImage } : {}),
         ...(dto.content !== undefined ? { content: dto.content } : {}),
@@ -206,20 +175,15 @@ export class NewsService {
 
     await this.invalidateWebNewsCache([existing.slug, news.slug]);
 
-    return news;
+    return { ...news, tags: this.parseTags(news.tags) };
   }
 
   async remove(id: number, currentAdminId: string) {
     const existing = await this.requireNews(id);
 
     await this.prisma.news.update({
-      where: {
-        id: existing.id
-      },
-      data: {
-        deletedAt: new Date(),
-        updatedBy: BigInt(currentAdminId)
-      }
+      where: { id: existing.id },
+      data: { deletedAt: new Date(), updatedBy: BigInt(currentAdminId) }
     });
 
     await this.operationLogService.create({
@@ -233,18 +197,14 @@ export class NewsService {
 
     await this.invalidateWebNewsCache([existing.slug]);
 
-    return {
-      success: true
-    };
+    return { success: true };
   }
 
   async publish(id: number, currentAdminId: string) {
     const existing = await this.requireNews(id);
 
     const news = await this.prisma.news.update({
-      where: {
-        id: existing.id
-      },
+      where: { id: existing.id },
       data: {
         status: 'published',
         publishedAt: existing.publishedAt ?? new Date(),
@@ -263,20 +223,15 @@ export class NewsService {
 
     await this.invalidateWebNewsCache([news.slug]);
 
-    return news;
+    return { ...news, tags: this.parseTags(news.tags) };
   }
 
   async offline(id: number, currentAdminId: string) {
     const existing = await this.requireNews(id);
 
     const news = await this.prisma.news.update({
-      where: {
-        id: existing.id
-      },
-      data: {
-        status: 'offline',
-        updatedBy: BigInt(currentAdminId)
-      }
+      where: { id: existing.id },
+      data: { status: 'offline', updatedBy: BigInt(currentAdminId) }
     });
 
     await this.operationLogService.create({
@@ -290,7 +245,7 @@ export class NewsService {
 
     await this.invalidateWebNewsCache([news.slug]);
 
-    return news;
+    return { ...news, tags: this.parseTags(news.tags) };
   }
 
   async findWebList(dto: QueryWebNewsDto) {
@@ -311,19 +266,13 @@ export class NewsService {
     const where: Prisma.NewsWhereInput = {
       deletedAt: null,
       status: 'published',
+      ...(dto.category ? { category: dto.category } : {}),
       ...(dto.keyword
         ? {
             OR: [
-              {
-                title: {
-                  contains: dto.keyword
-                }
-              },
-              {
-                summary: {
-                  contains: dto.keyword
-                }
-              }
+              { title: { contains: dto.keyword } },
+              { summary: { contains: dto.keyword } },
+              { tags: { contains: dto.keyword } }
             ]
           }
         : {})
@@ -339,6 +288,8 @@ export class NewsService {
           id: true,
           title: true,
           slug: true,
+          category: true,
+          tags: true,
           summary: true,
           coverImage: true,
           seoTitle: true,
@@ -353,13 +304,18 @@ export class NewsService {
       this.prisma.news.count({ where })
     ]);
 
+    const formattedList = await Promise.all(
+      list.map(async (item) => ({
+        ...item,
+        categoryLabel: CATEGORY_LABEL_MAP[item.category as NewsCategoryValue],
+        tags: this.parseTags(item.tags),
+        viewCount: await this.getViewCountBySlug(item.slug)
+      }))
+    );
+
     const result = {
-      list,
-      pagination: {
-        page,
-        pageSize,
-        total
-      }
+      list: formattedList,
+      pagination: { page, pageSize, total }
     };
 
     await this.redisService.setJson(cacheKey, result, WEB_NEWS_LIST_CACHE_TTL_SECONDS);
@@ -367,24 +323,43 @@ export class NewsService {
     return result;
   }
 
+  async findWebPortal(dto: QueryWebNewsDto) {
+    const listResult = await this.findWebList(dto);
+    const [hotTopics, tagCloud] = await Promise.all([this.buildHotTopics(), this.buildTagCloud()]);
+
+    return {
+      tabs: [
+        { key: 'all', label: '全部资讯' },
+        ...NEWS_CATEGORY_VALUES.map((value) => ({ key: value, label: CATEGORY_LABEL_MAP[value] }))
+      ],
+      filters: {
+        category: dto.category ?? 'all',
+        keyword: dto.keyword ?? ''
+      },
+      ...listResult,
+      hotTopics,
+      tagCloud
+    };
+  }
+
   async findWebDetail(slug: string) {
     const cacheKey = this.buildWebNewsDetailCacheKey(slug);
     const cached = await this.redisService.getJson<Record<string, unknown>>(cacheKey);
 
     if (cached) {
-      return cached;
+      await this.redisService.increment(this.buildWebNewsViewCountKey(slug));
+      const viewCount = await this.getViewCountBySlug(slug);
+      return { ...cached, viewCount };
     }
 
     const news = await this.prisma.news.findFirst({
-      where: {
-        slug,
-        status: 'published',
-        deletedAt: null
-      },
+      where: { slug, status: 'published', deletedAt: null },
       select: {
         id: true,
         title: true,
         slug: true,
+        category: true,
+        tags: true,
         summary: true,
         coverImage: true,
         content: true,
@@ -402,17 +377,24 @@ export class NewsService {
       throw new NotFoundException('新闻不存在');
     }
 
-    await this.redisService.setJson(cacheKey, news, WEB_NEWS_DETAIL_CACHE_TTL_SECONDS);
+    await this.redisService.increment(this.buildWebNewsViewCountKey(slug));
+    const viewCount = await this.getViewCountBySlug(slug);
 
-    return news;
+    const payload = {
+      ...news,
+      categoryLabel: CATEGORY_LABEL_MAP[news.category as NewsCategoryValue],
+      tags: this.parseTags(news.tags),
+      viewCount
+    };
+
+    await this.redisService.setJson(cacheKey, payload, WEB_NEWS_DETAIL_CACHE_TTL_SECONDS);
+
+    return payload;
   }
 
   private async requireNews(id: number) {
     const news = await this.prisma.news.findFirst({
-      where: {
-        id: BigInt(id),
-        deletedAt: null
-      }
+      where: { id: BigInt(id), deletedAt: null }
     });
 
     if (!news) {
@@ -457,12 +439,102 @@ export class NewsService {
     const page = dto.page ?? 1;
     const pageSize = dto.pageSize ?? 10;
     const keyword = encodeURIComponent((dto.keyword ?? '').trim());
+    const category = dto.category ?? 'all';
 
-    return `${WEB_NEWS_LIST_CACHE_PREFIX}page=${page}&pageSize=${pageSize}&keyword=${keyword}`;
+    return `${WEB_NEWS_LIST_CACHE_PREFIX}page=${page}&pageSize=${pageSize}&keyword=${keyword}&category=${category}`;
   }
 
   private buildWebNewsDetailCacheKey(slug: string) {
     return `${WEB_NEWS_DETAIL_CACHE_PREFIX}${slug}`;
+  }
+
+  private buildWebNewsViewCountKey(slug: string) {
+    return `${WEB_NEWS_VIEW_COUNT_KEY_PREFIX}${slug}`;
+  }
+
+  private async getViewCountBySlug(slug: string) {
+    return this.redisService.getNumber(this.buildWebNewsViewCountKey(slug));
+  }
+
+  private parseTags(rawTags: string | null | undefined): string[] {
+    if (!rawTags) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(rawTags) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  private stringifyTags(tags?: string[]) {
+    if (!tags || tags.length === 0) {
+      return null;
+    }
+
+    const normalized = Array.from(
+      new Set(tags.map((item) => item.trim()).filter(Boolean))
+    ).slice(0, 30);
+
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    return JSON.stringify(normalized);
+  }
+
+  private async buildHotTopics() {
+    const latestNews = await this.prisma.news.findMany({
+      where: { deletedAt: null, status: 'published' },
+      orderBy: [{ publishedAt: 'desc' }, { sortOrder: 'desc' }, { createdAt: 'desc' }],
+      take: 30,
+      select: {
+        id: true,
+        slug: true,
+        title: true
+      }
+    });
+
+    const withViews = await Promise.all(
+      latestNews.map(async (item) => ({
+        id: item.id,
+        slug: item.slug,
+        title: item.title,
+        viewCount: await this.getViewCountBySlug(item.slug)
+      }))
+    );
+
+    return withViews.sort((a, b) => b.viewCount - a.viewCount).slice(0, 5);
+  }
+
+  private async buildTagCloud() {
+    const news = await this.prisma.news.findMany({
+      where: { deletedAt: null, status: 'published' },
+      select: { tags: true },
+      take: 300
+    });
+
+    const counter = new Map<string, number>();
+
+    for (const item of news) {
+      for (const tag of this.parseTags(item.tags)) {
+        counter.set(tag, (counter.get(tag) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(counter.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 24)
+      .map(([name, count]) => ({ name, count }));
   }
 
   private async invalidateWebNewsCache(slugs: string[] = []) {

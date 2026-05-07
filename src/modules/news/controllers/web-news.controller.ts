@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+﻿import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/common/decorators/public.decorator';
 import { NewsService } from '../news.service';
@@ -14,6 +14,12 @@ export class WebNewsController {
   @ApiOperation({ summary: '前台新闻列表' })
   findAll(@Query() dto: QueryWebNewsDto) {
     return this.newsService.findWebList(dto);
+  }
+
+  @Get('portal')
+  @ApiOperation({ summary: '前台新闻门户聚合数据' })
+  findPortal(@Query() dto: QueryWebNewsDto) {
+    return this.newsService.findWebPortal(dto);
   }
 
   @Get(':slug')
